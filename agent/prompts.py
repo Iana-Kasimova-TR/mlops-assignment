@@ -20,18 +20,20 @@ Rules:
 - For "how many ..." questions, return a single COUNT.
 - Write valid SQLite syntax.
 
-Think step by step.
-
-Provide as output only SQL query.
+Output ONLY the final SQL query — no reasoning, no explanation, no comments, no markdown fences. Return just the raw SQLite statement.
 """
 
 # Available placeholders: {schema}, {question}
+# Schema (constant per DB) goes FIRST so vLLM prefix-caching can reuse its KV
+# across every question on the same DB; the varying question comes LAST.
 GENERATE_SQL_USER = """
-Question: {question}
+Database schema:
+{schema}
 
-Database schema: {schema}
+Write a single correct SQLite query that answers the question. Return only the SQL query, nothing else.
 
-Provide correct SQLite query for the provided question. Return only the SQL query.
+Question:
+{question}
 """
 
 
@@ -54,10 +56,12 @@ In "issue" field put the explanation of your decision if you decide that it is n
 """
 
 VERIFY_USER = """
+Database schema:
+{schema}
+
 Question: {question}
 SQL query: {query}
 Result of executed SQL: {result}
-Database schema: {schema}
 
 Decide if the result is plausibly correct. Return only JSON object: "{{"ok": bool, "issue": str}}".
 """
@@ -77,11 +81,13 @@ Your output should be only SQLite query
 """
 
 REVISE_USER = """
+Database schema:
+{schema}
+
 Question: {question}
 Previous SQL query: {query}
 Result of the execution: {result}
 Verdict from verifier: {verdict}
-Database schema: {schema}
 
-Provide only a correct SQLite query, which will answer on the given question.
+Provide only a correct SQLite query that answers the question.
 """

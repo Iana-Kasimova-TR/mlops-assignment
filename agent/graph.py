@@ -32,7 +32,7 @@ from agent.schema import render_schema
 
 # Total generate + revise calls before the loop is forced to stop.
 # 3-5 is a reasonable range; tune it as part of Phase 3.
-MAX_ITERATIONS = 3
+MAX_ITERATIONS = 2
 
 VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
 VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507")
@@ -63,6 +63,7 @@ def llm() -> ChatOpenAI:
         base_url=VLLM_BASE_URL,
         api_key=LLM_API_KEY,
         temperature=0.0,
+        max_tokens=256,
     )
 
 
@@ -152,6 +153,10 @@ def verify_node(state: AgentState) -> dict:
     What counts as "not plausible" is yours to define - see the Phase 3 targets
     in the README.
     """
+    # SQL didn't even run — skip the LLM verify call and hand the DB error
+    # straight to revise. No point spending tokens to confirm a known failure.
+    if state.execution and not state.execution.ok:
+        return {"verify_ok": False, "verify_issue": str(state.execution.error)}
     response = llm().invoke(
         [
             ("system", prompts.VERIFY_SYSTEM),
