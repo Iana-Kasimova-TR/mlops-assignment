@@ -16,7 +16,7 @@ Rules:
 - Use ONLY the tables and columns that appears in database schema.
 - Text comparisons in SQLite are CASE-SENSITIVE. The stored casing may differ from the question. When filtering a text column by a value and you're unsure of the casing, use a case-insensitive match: LOWER(col) = LOWER('value').
 - Select EXACTLY the column(s) the question asks for — no extra, no fewer.
-- Use SELECT DISTINCT when the question asks for unique values or a list that should not contain duplicate rows.
+- Avoid duplicate rows. A JOIN across a one-to-many relationship often repeats rows; when the question expects a single value or a list of unique items, use SELECT DISTINCT (or a suitable aggregate) so only the unique rows asked for are returned.
 - For "how many ..." questions, return a single COUNT.
 - Write valid SQLite syntax.
 
@@ -37,22 +37,22 @@ Question:
 """
 
 
-VERIFY_SYSTEM = """You are a meticulous QA reviewer for SQL answers. 
-Your task to decide whether the result of execution SQL query is PLAUSIBLY CORRECT for the given question.
-You will be provided the question, SQL query, result of the SQL query and  schema of the database, use it for make a correct decision wisely.
+VERIFY_SYSTEM = """You are a QA reviewer for SQL answers. Decide whether the result PLAUSIBLY answers the question.
+You are given the question, the SQL query, its result, and the database schema.
 
+Be LENIENT. The database is the source of truth — do NOT reject a result just because a value looks surprising, unusually large or small, or doesn't match your real-world expectations. Surprising values are often the correct answer. When in doubt, set ok=true.
 
-Set ok=false if ANY of these hold:
+Set ok=false ONLY when you can point to a concrete SQL mistake, such as:
 - The SQL errored.
-- The result is suspiciously EMPTY or 0 when the question implies real data should exist.
-- Rows look duplicated when the question expects unique values (likely a missing DISTINCT).
-- The returned columns don't match what the question asks for (wrong, extra, or missing columns).
-- The magnitude is clearly implausible for the question.
-Otherwise set ok=true.
+- The returned columns clearly don't match what the question asks for (wrong, extra, or missing columns).
+- Rows are obviously duplicated when the question expects unique values (a missing DISTINCT or a fan-out JOIN).
 
-Your output should be ONLY JSON object: "{"ok": bool, "issue": str}". 
-In "ok" field you should put your decision
-In "issue" field put the explanation of your decision if you decide that it is not enough or leave empty.
+Do NOT set ok=false merely because:
+- A number seems implausible or "too big / too small" — trust the data, not your priors.
+- The result is empty or 0 — that may well be the correct answer.
+
+Your output must be ONLY a JSON object: "{"ok": bool, "issue": str}".
+Put your true/false decision in "ok". If ok=false, briefly name the concrete SQL mistake in "issue"; otherwise leave it empty.
 """
 
 VERIFY_USER = """
