@@ -14,9 +14,11 @@ The execute node and the graph wiring are provided. `generate_sql_node` is
 filled in as a worked example; you implement `verify`, `revise`, and the
 conditional router following the same shape.
 """
+
 from __future__ import annotations
 
 import os
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -66,6 +68,7 @@ def llm() -> ChatOpenAI:
 
 # ---- Nodes ------------------------------------------------------------
 
+
 def _attach_schema(state: AgentState) -> dict:
     """Provided. Render the DB schema once at the start of the run."""
     return {"schema": render_schema(state.db_id)}
@@ -81,6 +84,26 @@ def _extract_sql(text: str) -> str:
     return (fenced.group(1) if fenced else text).strip()
 
 
+def _extract_decision(text: str) -> dict:
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    candidate = fenced.group(1) if fenced else text
+    brace = re.search(r"\{.*\}", candidate, re.DOTALL)
+    if brace:
+        candidate = brace.group(0)
+
+    try:
+        data = json.loads(candidate)
+    except (json.JSONDecodeError, TypeError):
+        return {
+            "verify_ok": False,
+            "verify_issue": f"could not parse verifier reply: {text}",
+        }
+    return {
+        "verify_ok": bool(data.get("ok", False)),
+        "verify_issue": str(data.get("issue", "")),
+    }
+
+
 def generate_sql_node(state: AgentState) -> dict:
     """Worked example - the other LLM nodes follow this same shape.
 
@@ -91,13 +114,18 @@ def generate_sql_node(state: AgentState) -> dict:
     This node is wired and ready; fill in GENERATE_SQL_SYSTEM / GENERATE_SQL_USER
     in prompts.py to make it produce real queries.
     """
-    response = llm().invoke([
-        ("system", prompts.GENERATE_SQL_SYSTEM),
-        ("user", prompts.GENERATE_SQL_USER.format(
-            schema=state.schema,
-            question=state.question,
-        )),
-    ])
+    response = llm().invoke(
+        [
+            ("system", prompts.GENERATE_SQL_SYSTEM),
+            (
+                "user",
+                prompts.GENERATE_SQL_USER.format(
+                    schema=state.schema,
+                    question=state.question,
+                ),
+            ),
+        ]
+    )
     sql = _extract_sql(response.content)
     return {
         "sql": sql,
@@ -124,7 +152,21 @@ def verify_node(state: AgentState) -> dict:
     What counts as "not plausible" is yours to define - see the Phase 3 targets
     in the README.
     """
-    raise NotImplementedError("Implement in Phase 3")
+    response = llm().invoke(
+        [
+            ("system", prompts.VERIFY_SYSTEM),
+            (
+                "user",
+                prompts.VERIFY_USER.format(
+                    schema=state.schema,
+                    question=state.question,
+                    result=state.execution.render(),
+                    query=state.sql,
+                ),
+            ),
+        ]
+    )
+    return _extract_decision(response.content)
 
 
 def revise_node(state: AgentState) -> dict:
@@ -137,7 +179,27 @@ def revise_node(state: AgentState) -> dict:
 
     Return: {"sql": <str>, "iteration": state.iteration + 1, ...}.
     """
-    raise NotImplementedError("Implement in Phase 3")
+    response = llm().invoke(
+        [
+            ("system", prompts.REVISE_SYSTEM),
+            (
+                "user",
+                prompts.REVISE_USER.format(
+                    schema=state.schema,
+                    question=state.question,
+                    query=state.sql,
+                    result=state.execution.render(),
+                    verdict=state.verify_issue,
+                ),
+            ),
+        ]
+    )
+    sql = _extract_sql(response.content)
+    return {
+        "sql": sql,
+        "iteration": state.iteration + 1,
+        "history": state.history + [{"node": "revise", "sql": sql}],
+    }
 
 
 def route_after_verify(state: AgentState) -> str:
@@ -146,10 +208,13 @@ def route_after_verify(state: AgentState) -> str:
     Two reasons to end: the verifier was happy (state.verify_ok), or you've hit
     the iteration cap (state.iteration >= MAX_ITERATIONS). Otherwise, revise.
     """
-    raise NotImplementedError("Implement in Phase 3")
+    if state.verify_ok or state.iteration >= MAX_ITERATIONS:
+        return "end"
+    return "revise"
 
 
 # ---- Graph wiring -----------------------------------------------------
+
 
 def build_graph():
     g = StateGraph(AgentState)
