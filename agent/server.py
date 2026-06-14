@@ -6,6 +6,7 @@ Run:
 The /answer endpoint accepts {question, db, tags?} and returns the
 agent's final SQL, the result rows, and per-iteration history.
 """
+
 from __future__ import annotations
 
 import os
@@ -35,7 +36,7 @@ app = FastAPI()
 class AnswerRequest(BaseModel):
     question: str
     db: str
-    tags: dict[str, str] = {}
+    tags: dict[str, Any] = {}
 
 
 class AnswerResponse(BaseModel):

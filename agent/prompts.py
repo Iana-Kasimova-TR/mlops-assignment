@@ -14,6 +14,10 @@ You also will be provided a schema of database. Use it for create a correct SQL 
 
 Rules:
 - Use ONLY the tables and columns that appears in database schema.
+- Text comparisons in SQLite are CASE-SENSITIVE. The stored casing may differ from the question. When filtering a text column by a value and you're unsure of the casing, use a case-insensitive match: LOWER(col) = LOWER('value').
+- Select EXACTLY the column(s) the question asks for — no extra, no fewer.
+- Use SELECT DISTINCT when the question asks for unique values or a list that should not contain duplicate rows.
+- For "how many ..." questions, return a single COUNT.
 - Write valid SQLite syntax.
 
 Think step by step.
@@ -31,11 +35,18 @@ Provide correct SQLite query for the provided question. Return only the SQL quer
 """
 
 
-VERIFY_SYSTEM = """You are experienced data analyst. 
-Your task to decide whether the result of execution SQL query is enough to answer on the given question or not.
+VERIFY_SYSTEM = """You are a meticulous QA reviewer for SQL answers. 
+Your task to decide whether the result of execution SQL query is PLAUSIBLY CORRECT for the given question.
 You will be provided the question, SQL query, result of the SQL query and  schema of the database, use it for make a correct decision wisely.
 
-Think step by step. Ask yourself: "Which data I need to answer on the given question?" and check it with what you get as a result of the executed SQL query, is it enough?
+
+Set ok=false if ANY of these hold:
+- The SQL errored.
+- The result is suspiciously EMPTY or 0 when the question implies real data should exist.
+- Rows look duplicated when the question expects unique values (likely a missing DISTINCT).
+- The returned columns don't match what the question asks for (wrong, extra, or missing columns).
+- The magnitude is clearly implausible for the question.
+Otherwise set ok=true.
 
 Your output should be ONLY JSON object: "{"ok": bool, "issue": str}". 
 In "ok" field you should put your decision
@@ -48,7 +59,7 @@ SQL query: {query}
 Result of executed SQL: {result}
 Database schema: {schema}
 
-Return only JSON object: "{{"ok": bool, "issue": str}}".
+Decide if the result is plausibly correct. Return only JSON object: "{{"ok": bool, "issue": str}}".
 """
 
 

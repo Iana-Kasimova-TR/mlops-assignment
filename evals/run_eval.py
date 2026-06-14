@@ -10,6 +10,7 @@ eval_one() and summarize().
 Run:
     uv run python evals/run_eval.py --out results/eval_baseline.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,7 +30,10 @@ AGENT_URL_DEFAULT = "http://localhost:8001/answer"
 
 # ---------- Helpers (provided) -----------------------------------------
 
-def run_sql(db_id: str, sql: str, timeout: float = 5.0) -> tuple[bool, list[tuple] | None, str | None]:
+
+def run_sql(
+    db_id: str, sql: str, timeout: float = 5.0
+) -> tuple[bool, list[tuple] | None, str | None]:
     """Run sql against db_id in read-only mode. Returns (ok, rows, error)."""
     path = DB_DIR / f"{db_id}.sqlite"
     try:
@@ -56,9 +60,29 @@ def matches(gold_rows: list[tuple] | None, pred_rows: list[tuple] | None) -> boo
 
 # ---------- Implement these (Phase 5) ----------------------------------
 
+
 def eval_one(question: dict, agent_url: str) -> dict:
     """Score one question. Return a dict capturing per-iteration correctness."""
-    raise NotImplementedError("Phase 5")
+    response = httpx.post(
+        agent_url,
+        json={"question": question["question"], "db": question["db_id"]},
+        timeout=120,
+    ).json()
+    gold_sql = question["gold_sql"]
+    _, gold_rows, _ = run_sql(question["db_id"], gold_sql)
+    history = response.get("history", [])
+    per_iteration_correct = []
+    iterations = response.get("iterations", 0)
+    for step in history:
+        sql = step["sql"]
+        _ok, pred_rows, _err = run_sql(question["db_id"], sql)
+        per_iteration_correct.append(matches(gold_rows, pred_rows))
+    return {
+        "db_id": question["db_id"],
+        "question": question["question"],
+        "per_iteration_correct": per_iteration_correct,
+        "iterations": iterations,
+    }
 
 
 def summarize(results: list[dict]) -> dict:
@@ -70,10 +94,27 @@ def summarize(results: list[dict]) -> dict:
     The agent stopped emitting; whatever it had at termination is what
     would have been served had we polled at iteration k.
     """
-    raise NotImplementedError("Phase 5")
+    n = len(results)
+    per_iterations_correctness = [item["per_iteration_correct"] for item in results]
+    max_num_iter = max([len(item["per_iteration_correct"]) for item in results])
+    pass_rates = []
+    for i in range(max_num_iter):
+        pass_rate = 0
+        for item in per_iterations_correctness:
+            if len(item) <= i:
+                pass_rate += item[-1]
+            else:
+                pass_rate += item[i]
+        pass_rates.append(pass_rate / n)
+    return {
+        "n_questions": n,
+        "overall_pass_rate": pass_rates[-1],
+        "pass_rate_at_iteration": pass_rates,
+    }
 
 
 # ---------- Main (provided) --------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -82,13 +123,19 @@ def main() -> None:
     parser.add_argument("--agent-url", default=AGENT_URL_DEFAULT)
     args = parser.parse_args()
 
-    questions = [json.loads(line) for line in args.eval_set.read_text().splitlines() if line.strip()]
+    questions = [
+        json.loads(line)
+        for line in args.eval_set.read_text().splitlines()
+        if line.strip()
+    ]
     print(f"Loaded {len(questions)} eval questions from {args.eval_set}")
 
     results: list[dict] = []
     t0 = time.monotonic()
     for i, q in enumerate(questions, 1):
-        print(f"[{i}/{len(questions)}] {q['db_id']}: {q['question'][:60]}...", flush=True)
+        print(
+            f"[{i}/{len(questions)}] {q['db_id']}: {q['question'][:60]}...", flush=True
+        )
         results.append(eval_one(q, args.agent_url))
     elapsed = time.monotonic() - t0
 
