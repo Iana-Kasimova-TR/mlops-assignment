@@ -71,8 +71,10 @@ How I diagnosed it, step by step, using the Grafana dashboard:
   only handle ~40 requests at once. At 10 RPS that's nowhere near enough, so everything piled
   up at the door (that's the timeouts and the connection-refused).
 - **Fix 1 — more workers.** The agent has no model in it (the model is in the vLLM container),
-  so extra worker processes are cheap. I also dropped `MAX_ITERATIONS` 3 → 2 and capped
-  `max_tokens`. p95 went 96.8 → 16.5s and timeouts/connection errors went to 0. Now the
+  so extra worker processes are cheap. I also cut the work *per request* — dropped `MAX_ITERATIONS` 3 → 2 (fewer LLM calls per
+  question), capped `max_tokens` at 256, and made the generator output only the SQL instead of
+  "think step by step" prose. All of these shrink how many tokens get generated, and generating
+  tokens (decode) is the slow phase, so they help latency directly. p95 went 96.8 → 16.5s and timeouts/connection errors went to 0. Now the
   dashboard flipped: KV cache hit **100%** and the queue spiked to ~87. The bottleneck moved
   from my server to the GPU — which is exactly where you want it. (Honest caveat: I changed three
   things in this one step — more workers, `MAX_ITERATIONS` 3→2, and `max_tokens` — so I can't
@@ -80,7 +82,11 @@ How I diagnosed it, step by step, using the Grafana dashboard:
   that's what took the timeouts and connection-refused to zero.)
 - **Fix 2 — find the worker sweet spot.** I had gone to 4 workers, but at KV 100% the GPU was
   over-fed and started preempting, which adds latency. So I swept the worker count down. **3
-  workers** gave KV ~40% and p95 9.3s. Busy GPU, but not thrashing.
+  workers** gave KV ~40% and p95 9.3s. Busy GPU, but not thrashing. (I did think about turning
+  on FP8 KV cache for more memory headroom, but once the worker sweep brought KV down to ~40% I
+  didn't need it — no point adding an accuracy risk to fix a problem that was already gone. So KV
+  cache was a lever I *read* on the dashboard to make the worker decision, and deliberately chose
+  not to pull.)
 - **Fix 3 — schema-first prompts (the big one).** My prompt had the *question* first and the
   *schema* after. The schema is identical for every question on the same database, but because
   the changing question came first, vLLM couldn't cache the schema as a prefix and re-processed

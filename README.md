@@ -423,7 +423,6 @@ By the end, your repo should contain:
 | `screenshots/grafana_before.png`, `screenshots/grafana_after.png` | Before/after the tuning change that moved the needle (Phase 6) |
 
 ---
-
 ## Grading
 
 We want to see your thoughts and reasoning process, not the green checkmarks. Showing where you got stuck is better than omitting mentions of these points. A missed SLO with a metric-grounded diagnosis is better than a hit SLO you can't explain.

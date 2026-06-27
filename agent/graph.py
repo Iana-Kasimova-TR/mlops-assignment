@@ -153,8 +153,6 @@ def verify_node(state: AgentState) -> dict:
     What counts as "not plausible" is yours to define - see the Phase 3 targets
     in the README.
     """
-    # SQL didn't even run — skip the LLM verify call and hand the DB error
-    # straight to revise. No point spending tokens to confirm a known failure.
     if state.execution and not state.execution.ok:
         return {"verify_ok": False, "verify_issue": str(state.execution.error)}
     response = llm().invoke(
